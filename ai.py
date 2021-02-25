@@ -1,5 +1,6 @@
 import chess
 import chess.engine
+import chess.pgn
 import time
 import asyncio
 
@@ -249,17 +250,41 @@ def move_order_key(move, board):
 def main():
     board = chess.Board()
 
+    game = chess.pgn.Game()
+    game.headers["Event"] = "Example"
     engine = chess.engine.SimpleEngine.popen_uci(
-        r"C:\Users\nbuon\Desktop\ssehc")
+        r"C:/Users/nbuon/Desktop/ace-0.1/ACE")
+    moves = []
+    node = game.parent
+    # board.push_san('d4')
+    # board.push_san('d5')
+    #node = game.add_main_variation(chess.Move.from_uci('d2d4'))
+    #node = node.add_main_variation(chess.Move.from_uci('d7d5'))
+    time_white = 0
+    time_black = 0
 
     while not board.is_game_over():
         print(board)
         print("White's move")
-        board.push(iterative_deepening(board, time.time(), 2))
+        start = time.time()
+        move = iterative_deepening(board, time.time(), 2)
+        time_white += time.time() - start
+        if node is None:
+            node = game.add_main_variation(move)
+        else:
+            node = node.add_main_variation(move)
+        board.push(move)
         print(board)
         print("Black's move")
-        result = engine.play(board, chess.engine.Limit(time=0.01))
+        start = time.time()
+        result = engine.play(board, chess.engine.Limit(time=10))
+        time_black += time.time() - start
+        node = node.add_main_variation(result.move)
         board.push(result.move)
+        print(game)
+        print('time white: ', time_white, 'time black: ', time_black)
+
+    print(game)
 
     engine.quit()
 
