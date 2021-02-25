@@ -250,11 +250,15 @@ def main():
     board = chess.Board()
 
     engine = chess.engine.SimpleEngine.popen_uci(
-        r"C:/Cygwin64/home/nbuon/SSEHC/build/apps/ssehc")
+        r"C:\Users\nbuon\Desktop\ssehc")
 
     while not board.is_game_over():
         print(board)
-        result = engine.play(board, chess.engine.Limit(time=0.1))
+        print("White's move")
+        board.push(iterative_deepening(board, time.time(), 2))
+        print(board)
+        print("Black's move")
+        result = engine.play(board, chess.engine.Limit(time=0.01))
         board.push(result.move)
 
     engine.quit()
