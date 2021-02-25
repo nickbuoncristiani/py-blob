@@ -250,7 +250,7 @@ def main():
     board = chess.Board()
 
     engine = chess.engine.SimpleEngine.popen_uci(
-        r"C:\Users\nbuon\Desktop\stockfish_2\stockfish")
+        r"C:/Cygwin64/home/nbuon/SSEHC/build/apps/ssehc")
 
     while not board.is_game_over():
         print(board)
