@@ -250,11 +250,11 @@ def main():
     board = chess.Board()
 
     engine = chess.engine.SimpleEngine.popen_uci(
-        "/usr/bin/komodo", startupinfo=subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW))
+        r"C:\Users\nbuon\Desktop\stockfish_2\stockfish")
 
     while not board.is_game_over():
         print(board)
-        result = engine.play(board, chess.engine.Limit(time=1))
+        result = engine.play(board, chess.engine.Limit(time=0.1))
         board.push(result.move)
 
     engine.quit()
