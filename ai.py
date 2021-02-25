@@ -1,8 +1,11 @@
 import chess
+import chess.engine
 import time
+import asyncio
 
 VALUES = [100, 350, 351, 500, 1000, 0]
-PIECES = range(1, 7)  # should probably call piece types
+PIECES = range(1, 7)
+MINOR_ROOK = range(2, 5)  # minor piece or rook
 
 
 def value(piece_type):
@@ -12,7 +15,10 @@ def value(piece_type):
         return 0
 
 
-# end game if each side has fewer than two of either a minor piece or a rook and no queen.
+def in_range(square):
+    return square >= 0 and square < 64
+
+
 def end_game(board):
 
     if len(board.pieces(chess.QUEEN, chess.BLACK) | board.pieces(chess.QUEEN, chess.WHITE)) != 0:
@@ -26,15 +32,18 @@ def end_game(board):
 
 
 def mobility(board):
-    result = 0
-    for square in chess.SQUARES:
-        piece = board.piece_at(square)
-        if piece and (piece.piece_type == chess.KNIGHT or piece.piece_type == chess.BISHOP or piece.piece_type == chess.ROOK):
-            if piece.color == chess.WHITE:
-                result += len(board.attacks(square))
-            else:
-                result -= len(board.attacks(square))
-    return result
+    side_to_move = board.turn
+
+    board.turn = chess.WHITE
+    white_score = len([move for move in board.legal_moves if board.piece_type_at(
+        move.from_square) in MINOR_ROOK])
+
+    board.turn = chess.BLACK
+    black_score = len([move for move in board.legal_moves if board.piece_type_at(
+        move.from_square) in MINOR_ROOK])
+
+    board.turn = side_to_move
+    return white_score - black_score
 
 
 def material(board):
@@ -45,7 +54,6 @@ def material(board):
     return white_material - black_material
 
 
-# just distance to enemy pawn, so not actually tropism
 def tropism(board):
     w_king = board.king(chess.WHITE)
     b_king = board.king(chess.BLACK)
@@ -62,34 +70,20 @@ def tropism(board):
     return -(w_score - b_score)  # negate because closer is better
 
 
-# todo: Better way to implement would be to take and of enemy pawns with squares in front of pawn and check for nonzero
 def is_passed(board, pawn, color):
-    direction = 1 if color else -1
-
-    left = pawn - 1 + 8 * direction  # first spots that opposing pawn could be
-    right = pawn + 1 + 8 * direction
-    front = pawn + 8 * direction
-
     enemy_pawns = board.pieces(chess.PAWN, not color)
+    opposing_squares = squares_ahead(pawn, color)
+    if chess.square_file(pawn) != 0:
+        opposing_squares |= squares_ahead(pawn-1, color)
+    if chess.square_file(pawn) != 7:
+        opposing_squares |= squares_ahead(pawn+1, color)
+    return len(enemy_pawns & opposing_squares) == 0
 
-    while front < 64 and front > 0:
-        if front in enemy_pawns:
-            return False
-        front += 8*direction
 
-    if pawn % 8 != 0:
-        while left < 64 and left > 0:
-            if left in enemy_pawns:
-                return False
-            left += 8*direction
-
-    if pawn % 8 != 7:
-        while right < 64 and right > 0:
-            if right in enemy_pawns:
-                return False
-            right += 8*direction
-
-    return True
+# get square set of squares in front of pawn on same file
+def squares_ahead(pawn, color):
+    direction = -1 if color == chess.BLACK else 1
+    return chess.SquareSet(pawn + step*8*direction for step in range(1, 8) if in_range(pawn + step*8*direction))
 
 
 def passers(board):
@@ -105,29 +99,21 @@ def passers(board):
 
 
 def eval_early(board):
-    if board.result() == '1-0':
-        return 10000
-    elif board.result() == '0-1':
-        return -10000
-    elif board.result() == '1/2-1/2':
-        return 0
-
     return mobility(board) + material(board)
 
 
 def eval_end(board):
+    return tropism(board) + material(board) + passers(board)
+
+
+def eval(board):
     if board.result() == '1-0':
         return 10000
     elif board.result() == '0-1':
         return -10000
     elif board.result() == '1/2-1/2':
         return 0
-
-    return tropism(board) + material(board) + passers(board)
-
-
-def eval(board):
-    if end_game(board):
+    elif end_game(board):
         return eval_end(board)
     else:
         return eval_early(board)
@@ -263,6 +249,17 @@ def move_order_key(move, board):
 def main():
     board = chess.Board()
 
+    engine = chess.engine.SimpleEngine.popen_uci(
+        "/usr/bin/komodo", startupinfo=subprocess.STARTUPINFO(dwFlags=subprocess.STARTF_USESHOWWINDOW))
+
+    while not board.is_game_over():
+        print(board)
+        result = engine.play(board, chess.engine.Limit(time=1))
+        board.push(result.move)
+
+    engine.quit()
+
+    """
     while not board.is_game_over():
         print(board)
         while True:
@@ -277,6 +274,7 @@ def main():
             print('computer thinking')
             board.push(iterative_deepening(board, time.time()))
             break
+    """
 
 
 if __name__ == "__main__":
