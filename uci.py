@@ -24,7 +24,7 @@ class Interface:
 
     def wait(self, wait_time):
         start_time = time.time()
-        while time.time() - start_time < wait_time:
+        while time.time() - start_time < wait_time/1000:
             if self.stop_timer:
                 return
 
@@ -55,10 +55,23 @@ class Interface:
         if self.wait_thread:
             self.wait_thread.join()
 
+    def go(self, tokens):
+        if 'movetime' in tokens:
+            think_time = int(tokens[tokens.index('movetime') + 1])
+        elif 'wtime' in tokens and self.board.turn == chess.WHITE:
+            think_time = int(tokens[tokens.index('wtime') + 1])
+        elif 'btime' in tokens and self.board.turn == chess.BLACK:
+            think_time = int(tokens[tokens.index('btime') + 1])
+        else:
+            think_time = 10000000000
+        self.start_thinking(think_time)
+
     def listen(self):
         while True:
             tokens = input().split(' ')
             if tokens[0] == 'uci':
+                print('id name py-blob')
+                print('id author Nicholas Buoncristiani Jerome Wei')
                 print('uciok')
             elif tokens[0] == 'isready':
                 print('readyok')
@@ -71,8 +84,7 @@ class Interface:
                 self.stop_thinking()
             elif tokens[0] == 'go':
                 try:
-                    think_time = int(tokens[tokens.index('movetime') + 1])
-                    self.start_thinking(think_time)
+                    self.go(tokens)
                 except Exception as e:
                     print(e)
             elif tokens[0] == 'quit':
