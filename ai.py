@@ -2,7 +2,6 @@ import chess
 import chess.engine
 import chess.pgn
 import time
-import asyncio
 
 VALUES = [100, 350, 351, 500, 1000, 0]
 PIECES = range(1, 7)
@@ -55,7 +54,7 @@ def material(board):
     return white_material - black_material
 
 
-def tropism(board):
+def king_activity(board):
     w_king = board.king(chess.WHITE)
     b_king = board.king(chess.BLACK)
     w_score, b_score = 0, 0
@@ -104,7 +103,7 @@ def eval_early(board):
 
 
 def eval_end(board):
-    return tropism(board) + material(board) + passers(board)
+    return king_activity(board) + material(board) + passers(board)
 
 
 def eval(board):
@@ -127,17 +126,8 @@ def flipped_eval(board):
         return -eval(board)
 
 
-def iterative_deepening(board, start, thinking_time=2):
-    depth = 0
-    moves = []
-    while time.time() - start < thinking_time:
-        moves = root_move(board, depth, moves)
-        depth += 1
-    return moves[0]
-
-
 # get list of possible moves sorted best to worst.
-def root_move(board, depth, prev_moves=[]):
+def root_move(board, depth, prev_moves, thinking):
     alpha = -10000
     beta = 10000
 
@@ -148,10 +138,9 @@ def root_move(board, depth, prev_moves=[]):
         moves = prev_moves
 
     out_moves = []
-
     for move in moves:
         board.push(move)
-        score = -ab_search(board, depth, -beta, -alpha)
+        score = -ab_search(board, depth, -beta, -alpha, thinking)
         board.pop()
 
         if score > alpha:
@@ -159,16 +148,20 @@ def root_move(board, depth, prev_moves=[]):
 
         out_moves.append((move, score))
 
+        if not thinking[0]:
+            break
+
     out_moves.sort(key=lambda pair: -pair[1])
+
     out_moves = [move for move, _ in out_moves]
 
     return out_moves
 
 
-def ab_search(board, depth, alpha, beta):
+def ab_search(board, depth, alpha, beta, thinking):
 
     if depth <= 0:
-        score = quiesce(board, alpha, beta)
+        score = quiesce(board, alpha, beta, thinking)
         if score > beta:
             return beta
         elif score < alpha:
@@ -186,7 +179,7 @@ def ab_search(board, depth, alpha, beta):
         if board.is_check():
             subdepth = depth
 
-        score = -ab_search(board, subdepth, -beta, -alpha)
+        score = -ab_search(board, subdepth, -beta, -alpha, thinking)
 
         board.pop()
 
@@ -195,10 +188,13 @@ def ab_search(board, depth, alpha, beta):
         elif score > alpha:
             alpha = score
 
+        if not thinking[0]:
+            return alpha
+
     return alpha
 
 
-def quiesce(board, alpha, beta):
+def quiesce(board, alpha, beta, thinking):
 
     baseline = flipped_eval(board)
     if board.is_game_over():
@@ -219,12 +215,14 @@ def quiesce(board, alpha, beta):
 
     for move in moves:
         board.push(move)
-        score = -quiesce(board, -beta, -alpha)
+        score = -quiesce(board, -beta, -alpha, thinking)
         board.pop()
         if score >= beta:
             return beta
         elif score > alpha:
             alpha = score
+        if not thinking[0]:
+            return alpha
 
     return alpha
 
@@ -253,7 +251,7 @@ def main():
     game = chess.pgn.Game()
     game.headers["Event"] = "Example"
     engine = chess.engine.SimpleEngine.popen_uci(
-        r"C:/Users/nbuon/Desktop/ace-0.1/ACE")
+        r"C:/Users/nbuon/Desktop/Alaric704/AlaricWB704")
     moves = []
     node = game.parent
     # board.push_san('d4')
