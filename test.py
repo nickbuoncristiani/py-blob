@@ -35,10 +35,10 @@ def test_passers():
     assert ai.passers(board) == -400, ai.passers(board)
 
 
-def test_tropism():
+def test_king_activity():
     board = chess.Board()
     board.set_fen('2k2b2/p3pp1q/3p3p/8/3PP3/3P4/5P2/3K2N1 w - - 0 1')
-    assert ai.tropism(board) == -1
+    assert ai.king_activity(board) == -1
 
 
 def test_mobility():
@@ -51,11 +51,62 @@ def test_mobility():
     assert ai.mobility(board) == 2, ai.mobility(board)
 
 
+def test_push():
+    board = ai.Board()
+    board.push(chess.Move.from_uci('e2e3'))
+    assert board.space() == 10, board.space()
+
+    board.pop()
+    assert board.space() == 0, board.space()
+
+    board.push(chess.Move.from_uci('g1f3'))
+    assert board.space() == 9, board.space()
+
+    board.pop()
+    assert board.space() == 0, board.space()
+
+    # Big game
+    board.push(chess.Move.from_uci('e2e4'))
+    assert board.space() == 13, board.space()
+    board.push(chess.Move.from_uci('e7e5'))
+    assert board.space() == 0, board.space()
+    board.push(chess.Move.from_uci('g1f3'))
+    assert board.space() == 8, board.space()
+    board.push(chess.Move.from_uci('g8f6'))
+    assert board.space() == 0, board.space()
+    board.push(chess.Move.from_uci('f3e5'))
+    assert board.space() == 10, board.space()
+    assert board.mat == 100, board.mat
+    assert board.eval() == 110, board.eval()
+    board.push(chess.Move.from_uci('f8c5'))
+    assert board.space() == 1, board.space()
+    assert board.mat == 100, board.mat
+    assert board.eval() == 101, board.eval()
+
+    board.pop()
+    assert board.space() == 10, board.space()
+    assert board.mat == 100, board.mat
+    assert board.eval() == 110, board.eval()
+    board.pop()
+    assert board.space() == 0, board.space()
+    assert board.mat == 0, board.mat
+    assert board.eval() == 0, board.eval()
+    board.pop()
+    assert board.space() == 8, board.space()
+    board.pop()
+    assert board.space() == 0, board.space()
+    board.pop()
+    assert board.space() == 13, board.space()
+    board.pop()
+    assert board.space() == 0, board.space()
+
+
 def main():
-    test_end_game()
-    test_mobility()
-    test_passers()
-    test_tropism()
+    # test_end_game()
+    # test_mobility()
+    # test_passers()
+    # test_king_activity()
+    test_push()
     print('good')
 
 

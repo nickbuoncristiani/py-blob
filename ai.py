@@ -2,10 +2,137 @@ import chess
 import chess.engine
 import chess.pgn
 import time
+import random
 
 VALUES = [100, 350, 351, 500, 1000, 0]
 PIECES = range(1, 7)
 MINOR_ROOK = range(2, 5)  # minor piece or rook
+CENTER = chess.SquareSet([27, 28, 35, 36])
+WHITE_SIDE = chess.SquareSet(range(0, 32))
+BLACK_SIDE = chess.SquareSet(range(32, 64))
+
+
+class Board:
+    def __init__(self, board=chess.Board()):
+        self.board = board
+
+        self.mat = material(board)
+        self.mat_stack = []
+
+        self.non_ray_space = 0
+        self.non_ray_stack = []
+
+    def reset(self):
+        self.board.reset()
+        self.mat = 0
+        self.mat_stack = []
+
+        self.non_ray_space = 0
+        self.non_ray_stack = []
+
+    def push(self, move):
+        mult = 1 if self.board.turn == chess.WHITE else -1
+        if move.promotion:  # bug if we promote to knight
+            mat_diff = mult * \
+                (value(move.promotion) - value(chess.PAWN))
+            self.mat += mat_diff
+            self.mat_stack.append(mat_diff)
+            # self.non_ray_stack.append(0)
+            self.board.push(move)
+            return
+
+        #side = WHITE_SIDE if self.board.turn == chess.WHITE else BLACK_SIDE
+        #enemy_side = WHITE_SIDE if self.board.turn == chess.BLACK else BLACK_SIDE
+
+        mat_diff = mult * value(self.board.piece_type_at(move.to_square))
+        self.mat += mat_diff
+        self.mat_stack.append(mat_diff)
+
+        #non_ray_diff = 0
+
+        # if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.#KNIGHT:
+        #    non_ray_diff += mult * 3 * \
+        #        len(self.board.attacks(move.to_square) & side)
+        #
+        # if self.board.piece_type_at(move.from_square) and self.board.piece_type_at(move.from_square) <= #chess.KNIGHT:
+        #    non_ray_diff -= mult * 3 * \
+        #        len(self.board.attacks(move.from_square) & enemy_side)
+
+        self.board.push(move)
+
+        # if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.#KNIGHT:
+        #    non_ray_diff += mult * 3 * \
+        #        len(self.board.attacks(move.to_square) & enemy_side)
+
+        #self.non_ray_space += non_ray_diff
+        # self.non_ray_stack.append(non_ray_diff)
+
+    def pop(self):
+        self.mat -= self.mat_stack.pop()
+        #self.non_ray_space -= self.non_ray_stack.pop()
+        self.board.pop()
+
+    def space(self):
+        return self.non_ray_space + self.ray_space()
+
+    def center_control(self):
+        result = 0
+        for square in CENTER:
+            result += len(self.board.attackers(chess.WHITE, square)) - \
+                len(self.board.attackers(chess.BLACK, square))
+        return 5 * result
+
+    def tropism(self):
+        w_king = self.board.king(chess.WHITE)
+        b_king = self.board.king(chess.BLACK)
+        w_score, b_score = 0, 0
+
+        if len(self.board.pieces(chess.PAWN, chess.WHITE)) > 0:
+            distances = [chess.square_distance(w_king, pawn)
+                         for pawn in self.board.pieces(chess.PAWN, chess.WHITE)]
+            distances.sort()
+            w_score = sum(distances[:3])
+
+        if len(self.board.pieces(chess.PAWN, chess.BLACK)) > 0:
+            distances = [chess.square_distance(b_king, pawn)
+                         for pawn in self.board.pieces(chess.PAWN, chess.BLACK)]
+            distances.sort()
+            b_score = sum(distances[:3])
+
+        return 40 * -(w_score - b_score)
+
+    def ray_space(self):
+        ray_space = 0
+        ray_space += 3 * sum(len(self.board.attacks(square) & BLACK_SIDE)
+                             for square in self.board.pieces(chess.ROOK, chess.WHITE) | self.board.pieces(chess.BISHOP, chess.WHITE))
+
+        ray_space += sum(len(self.board.attacks(square) & BLACK_SIDE)
+                         for square in self.board.pieces(chess.QUEEN, chess.WHITE))
+
+        ray_space -= 3 * sum(len(self.board.attacks(square) & WHITE_SIDE)
+                             for square in self.board.pieces(chess.ROOK, chess.BLACK) | self.board.pieces(chess.BISHOP, chess.BLACK))
+
+        ray_space -= sum(len(self.board.attacks(square) & WHITE_SIDE)
+                         for square in self.board.pieces(chess.QUEEN, chess.BLACK))
+        return ray_space
+
+    def eval(self):
+        if self.board.result() == '1-0':
+            return 10000
+        elif self.board.result() == '0-1':
+            return -10000
+        elif self.board.result() == '1/2-1/2':
+            return 0
+        if end_game(self.board):
+            return eval_end(self.board)
+        else:
+            return self.mat  # + self.space() + self.center_control() + self.tropism()
+
+    def flipped_eval(self):
+        if self.board.turn == chess.WHITE:
+            return self.eval()
+        else:
+            return -self.eval()
 
 
 def value(piece_type):
@@ -20,7 +147,6 @@ def in_range(square):
 
 
 def end_game(board):
-
     if len(board.pieces(chess.QUEEN, chess.BLACK) | board.pieces(chess.QUEEN, chess.WHITE)) != 0:
         return False
     elif len(board.pieces(chess.ROOK, chess.BLACK) | board.pieces(chess.KNIGHT, chess.BLACK) | board.pieces(chess.BISHOP, chess.BLACK)) > 2:
@@ -127,182 +253,190 @@ def flipped_eval(board):
 
 
 # get list of possible moves sorted best to worst.
-def root_move(board, depth, prev_moves, thinking):
+def root_move(board, depth, prev_best_move, prev_moves, thinking):
     alpha = -10000
     beta = 10000
 
-    if len(prev_moves) == 0:  # then sort heuristically
-        moves = list(board.legal_moves)
-        moves.sort(key=lambda move: move_order_key(move, board))
+    if len(prev_moves) != 0:
+        moves = list(filter(lambda move: move[0] !=
+                            prev_best_move, prev_moves))
+        moves.sort(key=lambda movescore: -movescore[1])
+        moves = list(map(lambda movescore: movescore[0], moves))
     else:
-        moves = prev_moves
+        moves = list(filter(lambda move: move !=
+                            prev_best_move, board.board.legal_moves))
+        moves.sort(key=lambda move: move_order_key(move, board))
+    # moves = list(filter(lambda move: move !=
+    #                    prev_best_move, board.legal_moves))
+    # moves.sort(key=lambda move: move_order_key(move, board))
+    if prev_best_move:
+        moves.insert(0, prev_best_move)
+    set_zero = False
 
-    out_moves = []
+    best_move = moves[0]
+    prev_moves.clear()
     for move in moves:
         board.push(move)
-        score = -ab_search(board, depth, -beta, -alpha, thinking)
+        #score = -ab_search(board, depth, -beta, -alpha, thinking)
+        if set_zero:
+            score = -ab_search(board, depth, -
+                               (alpha+1), -alpha, thinking, zero=True)
+            if score > alpha:
+                score = -ab_search(board, depth, -beta, -alpha, thinking)
+        else:
+            score = -ab_search(board, depth, -beta, -alpha, thinking)
+            set_zero = True
         board.pop()
 
         if score > alpha:
             alpha = score
-
-        out_moves.append((move, score))
+            best_move = move
 
         if not thinking[0]:
-            break
+            return prev_best_move
 
-    out_moves.sort(key=lambda pair: -pair[1])
+        prev_moves.append((move, score))
 
-    out_moves = [move for move, _ in out_moves]
+    # print(prev_moves)
+    # print()
+    return best_move
 
-    return out_moves
 
+def ab_search(board, depth, alpha, beta, thinking, zero=False):
+    if depth <= 0 or board.board.is_game_over():
+        return quiesce(board, alpha, beta, thinking)
 
-def ab_search(board, depth, alpha, beta, thinking):
+    moves = list(board.board.legal_moves)
+    moves.sort(key=lambda move: quiesce_order_key(move, board))
+    set_zero = False
 
-    if depth <= 0:
-        score = quiesce(board, alpha, beta, thinking)
-        if score > beta:
-            return beta
-        elif score < alpha:
-            return alpha
-        else:
-            return score
-
-    moves = list(board.legal_moves)
-    moves.sort(key=lambda move: move_order_key(move, board))
-
+    score = -10000
     for move in moves:
         board.push(move)
 
         subdepth = depth - 1
-        if board.is_check():
+        if board.board.is_check():
             subdepth = depth
 
-        score = -ab_search(board, subdepth, -beta, -alpha, thinking)
+        # score = max(score, -ab_search(board, subdepth,
+        #                              -beta, -alpha, thinking, zero=True))
+
+        if zero:
+            score = max(score, -ab_search(board, subdepth,
+                                          -beta, -alpha, thinking, zero=True))
+        elif set_zero:
+            test_score = -ab_search(board, subdepth, -
+                                    (alpha+1), -alpha, thinking, zero=True)
+            if test_score > alpha:
+                score = max(score, -ab_search(board,
+                                              subdepth, -beta, -alpha, thinking))
+        else:
+            score = max(score, -ab_search(board,
+                                          subdepth, -beta, -alpha, thinking))
+            set_zero = True
 
         board.pop()
 
         if score >= beta:
-            return beta
+            return score
         elif score > alpha:
             alpha = score
-
         if not thinking[0]:
-            return alpha
+            return score
 
-    return alpha
+    return score
 
 
 def quiesce(board, alpha, beta, thinking):
 
-    baseline = flipped_eval(board)
-    if board.is_game_over():
+    baseline = board.flipped_eval()
+    if board.board.is_game_over():
         return baseline
 
-    if baseline >= beta and not board.is_check():
-        return beta
-    elif baseline > alpha and not board.is_check():
+    if baseline >= beta and not board.board.is_check():
+        return baseline
+    elif baseline > alpha and not board.board.is_check():
         alpha = baseline
 
-    if board.is_check():
-        moves = list(board.legal_moves)
+    if board.board.is_check():
+        moves = list(board.board.legal_moves)
     else:
         moves = list(filter(lambda move: quiesce_condition(
-            move, board), board.legal_moves))  # take only moves which satisfy quiesce condition
+            move, board), board.board.legal_moves))  # take only moves which satisfy quiesce condition
 
-    moves.sort(key=lambda move: move_order_key(move, board))
+    moves.sort(key=lambda move: quiesce_order_key(move, board))
 
+    score = baseline
     for move in moves:
         board.push(move)
-        score = -quiesce(board, -beta, -alpha, thinking)
+        score = max(score, -quiesce(board, -beta, -alpha, thinking))
         board.pop()
         if score >= beta:
-            return beta
+            return score
         elif score > alpha:
             alpha = score
         if not thinking[0]:
-            return alpha
+            return score
 
-    return alpha
+    return score
 
 
 def quiesce_condition(move, board):
-    if board.is_capture(move) or move.promotion == chess.QUEEN:
+    if board.board.is_capture(move) or move.promotion == chess.QUEEN:
         return True
     else:
         return False
 
 
-def move_order_key(move, board):
-    if board.is_capture(move):
-        return -value(board.piece_type_at(move.to_square))
+def quiesce_order_key(move, board):
+    if board.board.is_capture(move):
+        return -value(board.board.piece_type_at(move.to_square))
     elif move.promotion == chess.QUEEN:
         return -value(chess.QUEEN)
-    elif board.gives_check(move):
-        return -50
+    elif board.board.gives_check(move):
+        return -150
     else:
         return 0
 
 
-def main():
-    board = chess.Board()
+def move_order_key(move, board):
+    board.push(move)
+    score = -quiesce(board, -10000, 10000, [True])
+    board.pop()
+    return -score
 
-    game = chess.pgn.Game()
-    game.headers["Event"] = "Example"
-    engine = chess.engine.SimpleEngine.popen_uci(
-        r"C:/Users/nbuon/Desktop/Alaric704/AlaricWB704")
-    moves = []
-    node = game.parent
-    # board.push_san('d4')
-    # board.push_san('d5')
-    #node = game.add_main_variation(chess.Move.from_uci('d2d4'))
-    #node = node.add_main_variation(chess.Move.from_uci('d7d5'))
-    time_white = 0
-    time_black = 0
 
-    while not board.is_game_over():
-        print(board)
-        print("White's move")
-        start = time.time()
-        move = iterative_deepening(board, time.time(), 2)
-        time_white += time.time() - start
-        if node is None:
-            node = game.add_main_variation(move)
-        else:
-            node = node.add_main_variation(move)
-        board.push(move)
-        print(board)
-        print("Black's move")
-        start = time.time()
-        result = engine.play(board, chess.engine.Limit(time=10))
-        time_black += time.time() - start
-        node = node.add_main_variation(result.move)
-        board.push(result.move)
-        print(game)
-        print('time white: ', time_white, 'time black: ', time_black)
-
-    print(game)
-
-    engine.quit()
-
-    """
-    while not board.is_game_over():
-        print(board)
-        while True:
-            try:
-                moveSan = input("your move: ")
-                move = board.parse_san(moveSan)
-            except ValueError:
-                print('move is illegal or ambigious. please try again')
-                continue
-            board.push(move)
-            print(board)
-            print('computer thinking')
-            board.push(iterative_deepening(board, time.time()))
-            break
-    """
+def eval_order_key(move, board):
+    board.push(move)
+    score = -board.flipped_eval()
+    board.pop()
+    return -score
 
 
 if __name__ == "__main__":
-    main()
+    board = Board()
+    # board.set_fen(
+    #    'rnb1kbnr/ppq2ppp/2p5/3pp3/8/P1NPBN1P/1PP1PPP1/R2QKB1R w KQkq - 0 7')
+    board.push(chess.Move.from_uci('d2d4'))
+    board.push(chess.Move.from_uci('d7d5'))
+    board.push(chess.Move.from_uci('b1d2'))
+    board.push(chess.Move.from_uci('c8f5'))
+    board.push(chess.Move.from_uci('g1f3'))
+    board.push(chess.Move.from_uci('e7e6'))
+    board.push(chess.Move.from_uci('c2c4'))
+    board.push(chess.Move.from_uci('b8c6'))
+    board.push(chess.Move.from_uci('c4d5'))
+    board.push(chess.Move.from_uci('d8d5'))
+    board.push(chess.Move.from_uci('a2a3'))
+    print(board.board)
+    start = time.time()
+    moves = []
+    best_move = None
+    best_move = root_move(board, 0, best_move, moves, [True])
+    best_move = root_move(board, 1, best_move, moves, [True])
+    best_move = root_move(board, 2, best_move, moves, [True])
+    #best_move = root_move(board, 3, best_move, moves, [True])
+    #best_move = root_move(board, 4, best_move, moves, [True])
+    #best_move = root_move(board, 5, best_move, moves, [True])
+    print(best_move)
+    print(time.time() - start)

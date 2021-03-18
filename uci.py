@@ -6,21 +6,23 @@ import chess
 
 class Interface:
     def __init__(self):
-        self.thinking = False
+        self.thinking = [False]
         self.stop_timer = True
         self.search_thread = None
         self.wait_thread = None
-        self.board = chess.Board()
+        self.board = ai.Board()
 
     def think(self):
-        moves = []
+        best_move = None
+        move_list = []
         depth = 0
-        while self.thinking:
-            moves = ai.root_move(self.board, depth, moves, [self.thinking])
+        while self.thinking[0]:
+            best_move = ai.root_move(
+                self.board, depth, best_move, move_list, self.thinking)
             depth += 1
         self.stop_timer = True
 
-        print('bestmove ' + moves[0].uci())
+        print('bestmove ' + best_move.uci(), flush=True)
 
     def wait(self, wait_time):
         start_time = time.time()
@@ -28,26 +30,29 @@ class Interface:
             if self.stop_timer:
                 return
 
-        self.thinking = False
+        self.thinking[0] = False
 
     def setup(self, tokens):
         if tokens[1] == 'fen':
-            self.board.set_fen(tokens[2])
-        elif tokens[1] == 'startpos' and tokens[2] == 'moves':
-            for move in tokens[3:]:
-                self.board.push(chess.Move.from_uci(move))
+            self.board.board.set_fen(tokens[2])
+        elif tokens[1] == 'startpos':
+            self.board.reset()
+            if len(tokens) > 3 and tokens[2] == 'moves':
+                for move in tokens[3:]:
+                    self.board.push(chess.Move.from_uci(move))
 
     def start_thinking(self, wait_time):
-        self.thinking = True
+        self.thinking[0] = True
         self.search_thread = threading.Thread(target=self.think)
         self.search_thread.start()
+
         self.stop_timer = False
         self.wait_thread = threading.Thread(
             target=self.wait, args=(wait_time,))
         self.wait_thread.start()
 
     def stop_thinking(self):
-        self.thinking = False
+        self.thinking[0] = False
         if self.search_thread:
             self.search_thread.join()
 
@@ -58,10 +63,10 @@ class Interface:
     def go(self, tokens):
         if 'movetime' in tokens:
             think_time = int(tokens[tokens.index('movetime') + 1])
-        elif 'wtime' in tokens and self.board.turn == chess.WHITE:
-            think_time = int(tokens[tokens.index('wtime') + 1])
-        elif 'btime' in tokens and self.board.turn == chess.BLACK:
-            think_time = int(tokens[tokens.index('btime') + 1])
+        elif 'wtime' in tokens and self.board.board.turn == chess.WHITE:
+            think_time = int(tokens[tokens.index('wtime') + 1])/20
+        elif 'btime' in tokens and self.board.board.turn == chess.BLACK:
+            think_time = int(tokens[tokens.index('btime') + 1])/20
         else:
             think_time = 10000000000
         self.start_thinking(think_time)
