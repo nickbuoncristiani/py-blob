@@ -16,13 +16,17 @@ class Interface:
         best_move = None
         move_list = []
         depth = 0
+        nodes = [0]
+        start = time.time()
         while self.thinking[0]:
+            print(nodes[0])
             best_move = ai.root_move(
-                self.board, depth, best_move, move_list, self.thinking)
+                self.board, depth, best_move, move_list, self.thinking, nodes)
             depth += 1
         self.stop_timer = True
 
         print('bestmove ' + best_move.uci(), flush=True)
+        print('nodes/sec ' + str(nodes[0]/(time.time()-start)), flush=True)
 
     def wait(self, wait_time):
         start_time = time.time()
@@ -34,7 +38,8 @@ class Interface:
 
     def setup(self, tokens):
         if tokens[1] == 'fen':
-            self.board.board.set_fen(tokens[2])
+            fen = ''.join([str(token)+' ' for token in tokens[2:]])
+            self.board.set_fen(fen)
         elif tokens[1] == 'startpos':
             self.board.reset()
             if len(tokens) > 3 and tokens[2] == 'moves':

@@ -11,6 +11,8 @@ CENTER = chess.SquareSet([27, 28, 35, 36])
 WHITE_SIDE = chess.SquareSet(range(0, 32))
 BLACK_SIDE = chess.SquareSet(range(32, 64))
 
+safe_cols = chess.BB_FILE_A | chess.BB_FILE_B | chess.BB_FILE_C | chess.BB_FILE_F | chess.BB_FILE_G | chess.BB_FILE_H
+
 
 class Board:
     def __init__(self, board=chess.Board()):
@@ -37,39 +39,42 @@ class Board:
                 (value(move.promotion) - value(chess.PAWN))
             self.mat += mat_diff
             self.mat_stack.append(mat_diff)
-            # self.non_ray_stack.append(0)
+            self.non_ray_stack.append(0)
             self.board.push(move)
             return
 
-        #side = WHITE_SIDE if self.board.turn == chess.WHITE else BLACK_SIDE
-        #enemy_side = WHITE_SIDE if self.board.turn == chess.BLACK else BLACK_SIDE
+        side = WHITE_SIDE if self.board.turn == chess.WHITE else BLACK_SIDE
+        enemy_side = WHITE_SIDE if self.board.turn == chess.BLACK else BLACK_SIDE
 
         mat_diff = mult * value(self.board.piece_type_at(move.to_square))
         self.mat += mat_diff
         self.mat_stack.append(mat_diff)
 
-        #non_ray_diff = 0
+        non_ray_diff = 0
 
-        # if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.#KNIGHT:
-        #    non_ray_diff += mult * 3 * \
-        #        len(self.board.attacks(move.to_square) & side)
-        #
-        # if self.board.piece_type_at(move.from_square) and self.board.piece_type_at(move.from_square) <= #chess.KNIGHT:
-        #    non_ray_diff -= mult * 3 * \
-        #        len(self.board.attacks(move.from_square) & enemy_side)
+        if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.KNIGHT:
+            non_ray_diff += mult * 3 * \
+                len(self.board.attacks(move.to_square) &
+                    side)  # reduce the non-ray space of opposing side
+
+        if self.board.piece_type_at(move.from_square) and self.board.piece_type_at(move.from_square) <= chess.KNIGHT:
+            non_ray_diff -= mult * 3 * \
+                len(self.board.attacks(move.from_square) &
+                    enemy_side)  # reduce the non-ray space of friendly side
 
         self.board.push(move)
 
-        # if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.#KNIGHT:
-        #    non_ray_diff += mult * 3 * \
-        #        len(self.board.attacks(move.to_square) & enemy_side)
+        if self.board.piece_type_at(move.to_square) and self.board.piece_type_at(move.to_square) <= chess.KNIGHT:
+            non_ray_diff += mult * 3 * \
+                len(self.board.attacks(move.to_square) &
+                    enemy_side)  # increase non-ray space of friendly side
 
-        #self.non_ray_space += non_ray_diff
-        # self.non_ray_stack.append(non_ray_diff)
+        self.non_ray_space += non_ray_diff
+        self.non_ray_stack.append(non_ray_diff)
 
     def pop(self):
         self.mat -= self.mat_stack.pop()
-        #self.non_ray_space -= self.non_ray_stack.pop()
+        self.non_ray_space -= self.non_ray_stack.pop()
         self.board.pop()
 
     def space(self):
@@ -80,27 +85,31 @@ class Board:
         for square in CENTER:
             result += len(self.board.attackers(chess.WHITE, square)) - \
                 len(self.board.attackers(chess.BLACK, square))
-        return 5 * result
+        return 2 * result
 
-    def tropism(self):
+    def king_safety(self):
         w_king = self.board.king(chess.WHITE)
         b_king = self.board.king(chess.BLACK)
         w_score, b_score = 0, 0
 
-        if len(self.board.pieces(chess.PAWN, chess.WHITE)) > 0:
+        safe_wpawns = self.board.pieces(chess.PAWN, chess.WHITE) & safe_cols
+        safe_bpawns = self.board.pieces(chess.PAWN, chess.BLACK) & safe_cols
+
+        if len(safe_wpawns) > 0:
             distances = [chess.square_distance(w_king, pawn)
-                         for pawn in self.board.pieces(chess.PAWN, chess.WHITE)]
+                         for pawn in safe_wpawns]
             distances.sort()
             w_score = sum(distances[:3])
 
-        if len(self.board.pieces(chess.PAWN, chess.BLACK)) > 0:
+        if len(safe_bpawns) > 0:
             distances = [chess.square_distance(b_king, pawn)
-                         for pawn in self.board.pieces(chess.PAWN, chess.BLACK)]
+                         for pawn in safe_bpawns]
             distances.sort()
             b_score = sum(distances[:3])
 
-        return 40 * -(w_score - b_score)
+        return 20 * -(w_score - b_score)
 
+    # Queen space is valued 1/3 of other pieces.
     def ray_space(self):
         ray_space = 0
         ray_space += 3 * sum(len(self.board.attacks(square) & BLACK_SIDE)
@@ -126,13 +135,16 @@ class Board:
         if end_game(self.board):
             return eval_end(self.board)
         else:
-            return self.mat  # + self.space() + self.center_control() + self.tropism()
+            return self.mat + self.space() + self.center_control()  # + self.king_safety()
 
     def flipped_eval(self):
         if self.board.turn == chess.WHITE:
             return self.eval()
         else:
             return -self.eval()
+
+    def set_fen(self, fen):
+        return
 
 
 def value(piece_type):
@@ -233,6 +245,7 @@ def eval_end(board):
 
 
 def eval(board):
+    return 0
     if board.result() == '1-0':
         return 10000
     elif board.result() == '0-1':
@@ -253,9 +266,10 @@ def flipped_eval(board):
 
 
 # get list of possible moves sorted best to worst.
-def root_move(board, depth, prev_best_move, prev_moves, thinking):
+def root_move(board, depth, prev_best_move, prev_moves, thinking, nodes):
     alpha = -10000
     beta = 10000
+    nodes[0] += 1
 
     if len(prev_moves) != 0:
         moves = list(filter(lambda move: move[0] !=
@@ -266,9 +280,9 @@ def root_move(board, depth, prev_best_move, prev_moves, thinking):
         moves = list(filter(lambda move: move !=
                             prev_best_move, board.board.legal_moves))
         moves.sort(key=lambda move: move_order_key(move, board))
-    # moves = list(filter(lambda move: move !=
-    #                    prev_best_move, board.legal_moves))
-    # moves.sort(key=lambda move: move_order_key(move, board))
+    moves = list(filter(lambda move: move !=
+                        prev_best_move, board.board.legal_moves))
+    moves.sort(key=lambda move: move_order_key(move, board))
     if prev_best_move:
         moves.insert(0, prev_best_move)
     set_zero = False
@@ -280,11 +294,12 @@ def root_move(board, depth, prev_best_move, prev_moves, thinking):
         #score = -ab_search(board, depth, -beta, -alpha, thinking)
         if set_zero:
             score = -ab_search(board, depth, -
-                               (alpha+1), -alpha, thinking, zero=True)
+                               (alpha+1), -alpha, thinking, nodes, zero=True)
             if score > alpha:
-                score = -ab_search(board, depth, -beta, -alpha, thinking)
+                score = -ab_search(board, depth, -beta, -
+                                   alpha, thinking, nodes)
         else:
-            score = -ab_search(board, depth, -beta, -alpha, thinking)
+            score = -ab_search(board, depth, -beta, -alpha, thinking, nodes)
             set_zero = True
         board.pop()
 
@@ -302,9 +317,10 @@ def root_move(board, depth, prev_best_move, prev_moves, thinking):
     return best_move
 
 
-def ab_search(board, depth, alpha, beta, thinking, zero=False):
+def ab_search(board, depth, alpha, beta, thinking, nodes, zero=False):
+    nodes[0] += 1
     if depth <= 0 or board.board.is_game_over():
-        return quiesce(board, alpha, beta, thinking)
+        return quiesce(board, alpha, beta, thinking, nodes)
 
     moves = list(board.board.legal_moves)
     moves.sort(key=lambda move: quiesce_order_key(move, board))
@@ -323,16 +339,16 @@ def ab_search(board, depth, alpha, beta, thinking, zero=False):
 
         if zero:
             score = max(score, -ab_search(board, subdepth,
-                                          -beta, -alpha, thinking, zero=True))
+                                          -beta, -alpha, thinking, nodes, zero=True))
         elif set_zero:
             test_score = -ab_search(board, subdepth, -
-                                    (alpha+1), -alpha, thinking, zero=True)
+                                    (alpha+1), -alpha, thinking, nodes, zero=True)
             if test_score > alpha:
                 score = max(score, -ab_search(board,
-                                              subdepth, -beta, -alpha, thinking))
+                                              subdepth, -beta, -alpha, thinking, nodes))
         else:
             score = max(score, -ab_search(board,
-                                          subdepth, -beta, -alpha, thinking))
+                                          subdepth, -beta, -alpha, thinking, nodes))
             set_zero = True
 
         board.pop()
@@ -347,8 +363,8 @@ def ab_search(board, depth, alpha, beta, thinking, zero=False):
     return score
 
 
-def quiesce(board, alpha, beta, thinking):
-
+def quiesce(board, alpha, beta, thinking, nodes):
+    nodes[0] += 1
     baseline = board.flipped_eval()
     if board.board.is_game_over():
         return baseline
@@ -369,7 +385,7 @@ def quiesce(board, alpha, beta, thinking):
     score = baseline
     for move in moves:
         board.push(move)
-        score = max(score, -quiesce(board, -beta, -alpha, thinking))
+        score = max(score, -quiesce(board, -beta, -alpha, thinking, nodes))
         board.pop()
         if score >= beta:
             return score
@@ -401,7 +417,7 @@ def quiesce_order_key(move, board):
 
 def move_order_key(move, board):
     board.push(move)
-    score = -quiesce(board, -10000, 10000, [True])
+    score = -quiesce(board, -10000, 10000, [True], [0])
     board.pop()
     return -score
 
@@ -428,7 +444,7 @@ if __name__ == "__main__":
     board.push(chess.Move.from_uci('c4d5'))
     board.push(chess.Move.from_uci('d8d5'))
     board.push(chess.Move.from_uci('a2a3'))
-    print(board.board)
+    print(board)
     start = time.time()
     moves = []
     best_move = None
